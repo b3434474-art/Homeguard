@@ -11,6 +11,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.homeguard.app.core.DevicePolicyStatus
 import com.homeguard.app.core.EventStore
+import com.homeguard.app.core.SecurityState
 import java.text.DateFormat
 import java.util.Date
 
@@ -55,9 +56,17 @@ class MainActivity : Activity() {
 
     private fun showDashboard() {
         baseLayout("HomeGuard")
+        val state = SecurityState.snapshot(this)
         addText("HUB STATUS", 13f, Color.LTGRAY, true)
-        addText("Not armed", 25f, Color.rgb(134, 239, 172), true)
-        addText("First build: no sensors are connected yet.", 16f, Color.WHITE)
+        addText(state.mode.name.replace("_", " "), 25f,
+            if (state.mode == com.homeguard.app.core.GuardMode.DISARMED) Color.rgb(134, 239, 172) else Color.rgb(253, 186, 116), true)
+        addText("No physical sensors are connected. The controls below are simulations only.", 15f, Color.WHITE)
+        addText("Last event: ${state.lastEvent}", 13f, Color.LTGRAY)
+        addText("DEMO CONTROLS — NOT A REAL SECURITY SYSTEM", 13f, Color.rgb(253, 186, 116), true)
+        addButton("Demo: Arm Home") { SecurityState.armHome(this); showDashboard() }
+        addButton("Demo: Arm Away") { SecurityState.armAway(this); showDashboard() }
+        addButton("Demo: Disarm") { SecurityState.disarm(this); showDashboard() }
+        addButton("Demo: Trigger front door sensor") { SecurityState.sensorTriggered(this, "Front door"); showDashboard() }
         addText(if (DevicePolicyStatus.isDeviceOwner(this)) "Managed mode: Device Owner active"
             else "Standard mode: Device Owner not configured", 14f, Color.rgb(191, 219, 254))
         addButton("Setup HomeGuard") { showSetup() }
@@ -92,7 +101,7 @@ class MainActivity : Activity() {
     private fun showDevices() {
         baseLayout("Devices")
         addText("No Bluetooth devices paired yet.", 17f, Color.WHITE)
-        addText("BLE pairing and the HomeGuard protocol are not implemented in this starter build.", 14f, Color.LTGRAY)
+        addText("BLE pairing and the HomeGuard protocol are not implemented yet. See docs/BLE_PROTOCOL.md.", 14f, Color.LTGRAY)
         addButton("Open Bluetooth settings") { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
         addButton("Back") { showDashboard() }
     }
