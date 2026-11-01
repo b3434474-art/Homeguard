@@ -73,5 +73,11 @@ Events are processed locally by the hub. The hub records its own receipt timesta
 - Low battery and missed heartbeat.
 - A11 real-world BLE range and connection stability.
 
+## Current app implementation
+- BLE scan screen can request Android scan permissions and discover nearby BLE advertisements.
+- A phone running HomeGuard can broadcast a non-connectable TEST beacon using this protocol's test service UUID.
+- Scanner labels that advertisement as HOMEGUARD TEST BEACON.
+- The test beacon is only a discovery check; it is not a GATT connection, pairing, authentication, or sensor.
+
 ## Status
-Draft only. No GATT UUIDs, transport, pairing flow, cryptographic enrollment, or physical sensor compatibility has been implemented yet.
+Protocol remains a draft. BLE discovery and a non-connectable test beacon are implemented. GATT connections, pairing flow, cryptographic enrollment, sensor compatibility, and production device authentication are not implemented yet.
