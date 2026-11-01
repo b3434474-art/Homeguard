@@ -1,9 +1,18 @@
 package com.homeguard.app.ui
 
+import android.Manifest
 import android.app.Activity
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
@@ -25,6 +34,35 @@ class MainActivity : Activity() {
     private val muted = Color.rgb(183, 194, 188)
     private val green = Color.rgb(13, 111, 83)
     private val mint = Color.rgb(108, 245, 198)
+    private val blePermissionRequest = 4107
+    private var bleScanner: BluetoothLeScanner? = null
+    private var isBleScanning = false
+    private val foundBleDevices = linkedMapOf<String, String>()
+    private var scanResultsView: TextView? = null
+    private var scanStatusView: TextView? = null
+
+    private val bleScanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val device = result.device
+            val address = try { device.address } catch (_: SecurityException) { "Address unavailable" }
+            val name = try {
+                result.scanRecord?.deviceName ?: device.name ?: "Unnamed BLE device"
+            } catch (_: SecurityException) {
+                result.scanRecord?.deviceName ?: "Unnamed BLE device"
+            }
+            runOnUiThread {
+                foundBleDevices[address] = "$name\n$address  •  RSSI ${result.rssi} dBm"
+                renderBleResults()
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            runOnUiThread {
+                isBleScanning = false
+                scanStatusView?.text = "Scan failed (code $errorCode). Try again."
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,6 +73,7 @@ class MainActivity : Activity() {
         GradientDrawable().apply { setColor(color); cornerRadius = radius }
 
     private fun baseLayout(title: String) {
+        if (title != "BLE Scanner") stopBleScan()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
@@ -230,7 +269,8 @@ class MainActivity : Activity() {
 
         addSection("Devices", "VIEW ALL")
         addCard("No sensors connected", "Your door, window, and motion sensors will appear here.")
-        addCard("Bluetooth hub", "BLE pairing and device communication are not available yet.")
+        addCard("Bluetooth discovery", "Scan nearby BLE broadcasts to find compatible devices.")
+        addAction("Find nearby Bluetooth devices", { showBleScanner() }, green)
 
         addSection("Recent activity", "VIEW ALL")
         addCard(state.lastEvent, if (state.updatedAtMillis > 0)
@@ -269,10 +309,115 @@ class MainActivity : Activity() {
     private fun showDevices() {
         baseLayout("Devices")
         addText("Your connected devices", 23f, Color.WHITE, true)
-        addCard("No Bluetooth devices paired", "HomeGuard has not enrolled any sensors yet.")
-        addText("The BLE protocol is being designed to support compatible door, window, and motion sensors.", 14f, muted)
+        addCard("No enrolled sensors", "Discovery does not automatically pair or authorize devices.")
+        addText("HomeGuard can scan BLE advertisements. GATT connections, secure enrollment, and sensor control are the next development steps.", 14f, muted)
+        addAction("Scan for nearby BLE devices", { showBleScanner() }, green)
         addAction("Open Bluetooth settings", { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) })
         addAction("Back to Home", { showDashboard() })
+    }
+
+    private fun requiredBlePermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    private fun hasBlePermissions(): Boolean =
+        requiredBlePermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+
+    private fun showBleScanner() {
+        baseLayout("BLE Scanner")
+        addText("Nearby Bluetooth devices", 23f, Color.WHITE, true)
+        addText("This scans for BLE advertisements. A phone may not appear unless it is actively advertising; Bluetooth being switched on is not enough.", 14f, muted)
+        addCard("Privacy", "Scanning happens on this phone. HomeGuard does not upload device names or addresses.")
+        scanStatusView = TextView(this).apply {
+            text = "Ready to scan"
+            textSize = 14f
+            setTextColor(mint)
+            setPadding(0, 12, 0, 12)
+        }
+        content.addView(scanStatusView)
+        addAction("Start BLE scan", { beginBleScan() }, green)
+        addAction("Stop scan", { stopBleScan(); scanStatusView?.text = "Scan stopped" })
+        addSection("Discovered devices")
+        scanResultsView = TextView(this).apply {
+            text = "No devices found yet."
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(0, 8, 0, 8)
+        }
+        content.addView(scanResultsView)
+        addAction("Back to Devices", { showDevices() })
+        renderBleResults()
+    }
+
+    private fun beginBleScan() {
+        if (!hasBlePermissions()) {
+            requestPermissions(requiredBlePermissions(), blePermissionRequest)
+            return
+        }
+        try {
+            val manager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+            val adapter: BluetoothAdapter = manager.adapter
+                ?: run { scanStatusView?.text = "Bluetooth is unavailable on this phone."; return }
+            if (!adapter.isEnabled) {
+                scanStatusView?.text = "Turn on Bluetooth, then start the scan again."
+                startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                return
+            }
+            bleScanner = adapter.bluetoothLeScanner
+            if (bleScanner == null) {
+                scanStatusView?.text = "BLE scanning is unavailable on this phone."
+                return
+            }
+            foundBleDevices.clear()
+            renderBleResults()
+            bleScanner?.startScan(
+                null,
+                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
+                bleScanCallback
+            )
+            isBleScanning = true
+            scanStatusView?.text = "Scanning nearby BLE devices… Tap Stop scan when finished."
+        } catch (_: SecurityException) {
+            scanStatusView?.text = "Bluetooth permission was not granted. Allow it and try again."
+        } catch (error: Exception) {
+            scanStatusView?.text = "Could not start scan: ${error.message ?: "unknown error"}"
+        }
+    }
+
+    private fun stopBleScan() {
+        if (!isBleScanning) return
+        try { bleScanner?.stopScan(bleScanCallback) } catch (_: SecurityException) { }
+        isBleScanning = false
+    }
+
+    private fun renderBleResults() {
+        val view = scanResultsView ?: return
+        view.text = if (foundBleDevices.isEmpty()) {
+            "No devices found yet. Try scanning near a BLE advertiser."
+        } else {
+            foundBleDevices.values.joinToString("\n\n")
+        }
+    }
+
+    @Deprecated("Deprecated in Android API; retained for Android 12 compatibility")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == blePermissionRequest) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                beginBleScan()
+            } else {
+                scanStatusView?.text = "Bluetooth scan permission denied. Enable it in App permissions to scan."
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        stopBleScan()
+        super.onDestroy()
     }
 
     private fun showEvents() {
