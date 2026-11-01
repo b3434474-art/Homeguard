@@ -50,25 +50,35 @@ class MainActivity : Activity() {
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(4, 8, 4, 8)
+            setPadding(6, 6, 6, 6)
             setBackgroundColor(Color.rgb(29, 35, 33))
         }
-        addNavItem(nav, "⌂\nHome") { showDashboard() }
-        addNavItem(nav, "◷\nActivity") { showEvents() }
-        addNavItem(nav, "▣\nDevices") { showDevices() }
-        addNavItem(nav, "⚙\nSettings") { showSettings() }
-        root.addView(nav, LinearLayout.LayoutParams(-1, 62))
+        addNavItem(nav, "⌂", "Home") { showDashboard() }
+        addNavItem(nav, "◷", "Activity") { showEvents() }
+        addNavItem(nav, "▣", "Devices") { showDevices() }
+        addNavItem(nav, "⚙", "Settings") { showSettings() }
+        root.addView(nav, LinearLayout.LayoutParams(-1, 76))
         setContentView(root)
     }
 
-    private fun addNavItem(parent: LinearLayout, label: String, action: () -> Unit) {
-        val item = TextView(this).apply {
-            text = label
-            textSize = 12f
+    private fun addNavItem(parent: LinearLayout, symbol: String, label: String, action: () -> Unit) {
+        val item = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setPadding(4, 4, 4, 4)
+            setPadding(4, 5, 4, 5)
             setOnClickListener { action() }
+            addView(TextView(this@MainActivity).apply {
+                text = symbol
+                textSize = 23f
+                gravity = Gravity.CENTER
+                setTextColor(mint)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+            })
         }
         parent.addView(item, LinearLayout.LayoutParams(0, -1, 1f))
     }
@@ -144,12 +154,38 @@ class MainActivity : Activity() {
         })
     }
 
+    private fun addShortcutRow(
+        firstTitle: String, firstIcon: String, firstAction: () -> Unit,
+        secondTitle: String, secondIcon: String, secondAction: () -> Unit
+    ) {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun tile(title: String, icon: String, action: () -> Unit): TextView =
+            TextView(this).apply {
+                text = "$title    $icon"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(14, 18, 10, 18)
+                background = rounded(panel, 20f)
+                setOnClickListener { action() }
+            }
+        row.addView(tile(firstTitle, firstIcon, firstAction),
+            LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(0, 4, 5, 4) })
+        row.addView(tile(secondTitle, secondIcon, secondAction),
+            LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(5, 4, 0, 4) })
+        content.addView(row)
+    }
+
     private fun showDashboard() {
         baseLayout("Home")
         val state = SecurityState.snapshot(this)
         val role = getSharedPreferences("homeguard", MODE_PRIVATE).getString("role", "Hub not configured")
         val status = state.mode.name.replace("_", " ")
         addText("HOMEGUARD  •  $role", 12f, muted, true)
+        if (role == "Hub not configured" || role == "Not selected") {
+            addCard("Finish setting up your hub", "Choose Hub or Controller to personalize this device.")
+            addAction("Start setup", { showSetup() }, green)
+        }
 
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -202,8 +238,8 @@ class MainActivity : Activity() {
             else "Waiting for the first event")
 
         addSection("Shortcuts")
-        addAction("Set up HomeGuard", { showSetup() })
-        addAction("Open Bluetooth settings", { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) })
+        addShortcutRow("Your home", "⌂", { showDashboard() }, "Devices", "▣", { showDevices() })
+        addShortcutRow("Activity", "◷", { showEvents() }, "Setup", "⚙", { showSetup() })
         addText("Device Owner: ${DevicePolicyStatus.isDeviceOwner(this)}", 12f, muted)
     }
 
