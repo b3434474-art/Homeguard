@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">HomeGuard</string>
+    <string name="admin_description">Allows HomeGuard to apply approved device-management policies when explicitly provisioned as Device Owner.</string>
+</resources>
