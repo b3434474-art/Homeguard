@@ -70,7 +70,12 @@ class MainActivity : Activity() {
         override fun onScanFailed(errorCode: Int) {
             runOnUiThread {
                 isBleScanning = false
-                scanStatusView?.text = "Scan failed (code $errorCode). Try again."
+                if (errorCode == 1) {
+                    try { bleScanner?.stopScan(this) } catch (_: SecurityException) { }
+                    scanStatusView?.text = "Android reports a scan is already active. Previous scan stopped—tap Start BLE scan again."
+                } else {
+                    scanStatusView?.text = "Scan failed (code $errorCode). Check Bluetooth permissions and try again."
+                }
             }
         }
     }
@@ -406,14 +411,17 @@ class MainActivity : Activity() {
                 scanStatusView?.text = "BLE scanning is unavailable on this phone."
                 return
             }
+            // Clear any scan left active by a previous screen/session before starting.
+            try { bleScanner?.stopScan(bleScanCallback) } catch (_: SecurityException) { }
+            isBleScanning = false
             foundBleDevices.clear()
             renderBleResults()
+            isBleScanning = true
             bleScanner?.startScan(
                 null,
                 ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
                 bleScanCallback
             )
-            isBleScanning = true
             scanStatusView?.text = "Scanning nearby BLE devices… Tap Stop scan when finished."
         } catch (_: SecurityException) {
             scanStatusView?.text = "Bluetooth permission was not granted. Allow it and try again."
@@ -469,7 +477,7 @@ class MainActivity : Activity() {
     }
 
     private fun stopBleScan() {
-        if (!isBleScanning) return
+        // Always attempt cleanup: Android may retain a scan even if our local flag is stale.
         try { bleScanner?.stopScan(bleScanCallback) } catch (_: SecurityException) { }
         isBleScanning = false
     }
