@@ -60,7 +60,9 @@ class MainActivity : Activity() {
                 result.scanRecord?.deviceName ?: "Unnamed BLE device"
             }
             runOnUiThread {
-                foundBleDevices[address] = "$name\n$address  •  RSSI ${result.rssi} dBm"
+                val isHomeGuardTest = result.scanRecord?.serviceUuids?.contains(testServiceUuid) == true
+                val marker = if (isHomeGuardTest) " • HOMEGUARD TEST BEACON" else ""
+                foundBleDevices[address] = "$name$marker\n$address  •  RSSI ${result.rssi} dBm"
                 renderBleResults()
             }
         }
@@ -97,7 +99,10 @@ class MainActivity : Activity() {
         GradientDrawable().apply { setColor(color); cornerRadius = radius }
 
     private fun baseLayout(title: String) {
-        if (title != "BLE Scanner") stopBleScan()
+        if (title != "BLE Scanner") {
+            stopBleScan()
+            stopTestBeacon()
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
@@ -447,6 +452,7 @@ class MainActivity : Activity() {
                 .addServiceUuid(testServiceUuid)
                 .setIncludeDeviceName(false)
                 .build()
+            isBleAdvertising = true
             advertiser.startAdvertising(settings, data, bleAdvertiseCallback)
             scanStatusView?.text = "Starting HomeGuard TEST beacon…"
         } catch (_: SecurityException) {
