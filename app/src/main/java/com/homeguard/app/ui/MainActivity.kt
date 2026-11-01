@@ -5,6 +5,10 @@ import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.BluetoothLeAdvertiser
+import android.bluetooth.le.AdvertiseCallback
+import android.bluetooth.le.AdvertiseData
+import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -14,6 +18,7 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelUuid
 import android.provider.Settings
 import android.view.Gravity
 import android.widget.Button
@@ -26,6 +31,7 @@ import com.homeguard.app.core.GuardMode
 import com.homeguard.app.core.SecurityState
 import java.text.DateFormat
 import java.util.Date
+import java.util.UUID
 
 class MainActivity : Activity() {
     private lateinit var content: LinearLayout
@@ -36,7 +42,10 @@ class MainActivity : Activity() {
     private val mint = Color.rgb(108, 245, 198)
     private val blePermissionRequest = 4107
     private var bleScanner: BluetoothLeScanner? = null
+    private var bleAdvertiser: BluetoothLeAdvertiser? = null
     private var isBleScanning = false
+    private var isBleAdvertising = false
+    private val testServiceUuid = ParcelUuid(UUID.fromString("8d53dc1d-1db7-4cd3-868b-8a527460aa84"))
     private val foundBleDevices = linkedMapOf<String, String>()
     private var scanResultsView: TextView? = null
     private var scanStatusView: TextView? = null
@@ -60,6 +69,21 @@ class MainActivity : Activity() {
             runOnUiThread {
                 isBleScanning = false
                 scanStatusView?.text = "Scan failed (code $errorCode). Try again."
+            }
+        }
+    }
+
+    private val bleAdvertiseCallback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+            runOnUiThread {
+                isBleAdvertising = true
+                scanStatusView?.text = "This phone is broadcasting a HomeGuard TEST beacon."
+            }
+        }
+        override fun onStartFailure(errorCode: Int) {
+            runOnUiThread {
+                isBleAdvertising = false
+                scanStatusView?.text = "Test beacon failed to start (code $errorCode)."
             }
         }
     }
@@ -318,7 +342,7 @@ class MainActivity : Activity() {
 
     private fun requiredBlePermissions(): Array<String> {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
         } else {
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
         }
@@ -340,7 +364,12 @@ class MainActivity : Activity() {
         }
         content.addView(scanStatusView)
         addAction("Start BLE scan", { beginBleScan() }, green)
-        addAction("Stop scan", { stopBleScan(); scanStatusView?.text = "Scan stopped" })
+        addAction("Broadcast test beacon from this phone", { startTestBeacon() })
+        addAction("Stop scan / beacon", {
+            stopBleScan()
+            stopTestBeacon()
+            scanStatusView?.text = "Scanning and beacon stopped"
+        })
         addSection("Discovered devices")
         scanResultsView = TextView(this).apply {
             text = "No devices found yet."
@@ -388,6 +417,51 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startTestBeacon() {
+        if (!hasBlePermissions()) {
+            requestPermissions(requiredBlePermissions(), blePermissionRequest)
+            return
+        }
+        try {
+            val manager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+            val adapter = manager.adapter
+                ?: run { scanStatusView?.text = "Bluetooth is unavailable."; return }
+            if (!adapter.isEnabled) {
+                scanStatusView?.text = "Turn on Bluetooth, then start the test beacon."
+                startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                return
+            }
+            if (!adapter.isMultipleAdvertisementSupported) {
+                scanStatusView?.text = "BLE advertising is not supported by this phone."
+                return
+            }
+            bleAdvertiser = adapter.bluetoothLeAdvertiser
+            val advertiser = bleAdvertiser
+                ?: run { scanStatusView?.text = "BLE advertiser is unavailable."; return }
+            val settings = AdvertiseSettings.Builder()
+                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+                .setConnectable(false)
+                .build()
+            val data = AdvertiseData.Builder()
+                .addServiceUuid(testServiceUuid)
+                .setIncludeDeviceName(false)
+                .build()
+            advertiser.startAdvertising(settings, data, bleAdvertiseCallback)
+            scanStatusView?.text = "Starting HomeGuard TEST beacon…"
+        } catch (_: SecurityException) {
+            scanStatusView?.text = "Bluetooth advertising permission was not granted."
+        } catch (error: Exception) {
+            scanStatusView?.text = "Could not start test beacon: ${error.message ?: "unknown error"}"
+        }
+    }
+
+    private fun stopTestBeacon() {
+        if (!isBleAdvertising) return
+        try { bleAdvertiser?.stopAdvertising(bleAdvertiseCallback) } catch (_: SecurityException) { }
+        isBleAdvertising = false
+    }
+
     private fun stopBleScan() {
         if (!isBleScanning) return
         try { bleScanner?.stopScan(bleScanCallback) } catch (_: SecurityException) { }
@@ -417,6 +491,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         stopBleScan()
+        stopTestBeacon()
         super.onDestroy()
     }
 
